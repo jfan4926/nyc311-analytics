@@ -1,0 +1,25 @@
+cat > .gitignore << 'EOF'
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+
+# data
+data/raw/
+data/processed/
+*.parquet
+*.csv
+
+# dbt
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+
+# MLflow
+mlruns/
+
+# IDE
+.vscode/settings.json
+.DS_Store
+EOF
