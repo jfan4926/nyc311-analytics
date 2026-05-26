@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_complaints
+    description: "Cleaned and typed NYC 311 complaints data"
+    columns:
+      - name: unique_key
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      - name: resolution_hours
+        description: "Hours to close complaint, null if still open"
+      - name: borough
+        description: "NYC borough, null if unspecified"
