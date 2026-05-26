@@ -1,5 +1,5 @@
 WITH source AS (
-    SELECT * FROM read_parquet('../../../data/raw/nyc311.parquet')
+    SELECT * FROM read_parquet('{{ var("raw_data_path") }}/nyc311.parquet')
 ),
 
 cleaned AS (

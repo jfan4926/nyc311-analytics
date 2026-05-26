@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: mart_complaint_trends
+    description: "Weekly complaint trends by borough and type"
+
+  - name: mart_agency_performance
+    description: "Agency performance metrics for complaints with resolution time"
+
+  - name: mart_ml_features
+    description: "Feature table for ML pipeline, one row per complaint"
+    columns:
+      - name: unique_key
+        tests:
+          - unique
+          - not_null
