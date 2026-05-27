@@ -18,6 +18,7 @@ dbt_project/nyc311/profiles.yml
 
 # MLflow
 mlruns/
+mlflow.db
 
 # IDE
 .vscode/settings.json
