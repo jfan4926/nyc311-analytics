@@ -12,15 +12,21 @@ DB_PATH = "data/processed/nyc311.duckdb"
 SCHEMA = """
 You have access to a DuckDB database with the following tables:
 
-1. mart_complaint_trends
-   - week (TIMESTAMP): week start date
+1. mart_complaint_trends  
+   - week (TIMESTAMP): week start date  ← this table has ONE ROW PER WEEK PER BOROUGH PER COMPLAINT_TYPE
    - borough (VARCHAR): NYC borough name
    - complaint_type (VARCHAR): type of complaint
-   - total_complaints (INT): number of complaints
-   - closed_complaints (INT): number of resolved complaints
+   - total_complaints (INT): complaint count for that week
+   - closed_complaints (INT): resolved complaints for that week
    - avg_resolution_hours (FLOAT): average hours to resolve
    - median_resolution_hours (FLOAT): median hours to resolve
    - closure_rate_pct (FLOAT): percentage of complaints closed
+   
+   IMPORTANT: To get totals or averages across all time, always use aggregation:
+   Example - top complaint types by volume:
+   SELECT complaint_type, SUM(total_complaints) AS total FROM mart_complaint_trends GROUP BY complaint_type ORDER BY total DESC LIMIT 5
+   Example - closure rate by borough:
+   SELECT borough, ROUND(AVG(closure_rate_pct),1) AS avg_closure_rate FROM mart_complaint_trends GROUP BY borough ORDER BY avg_closure_rate DESC
 
 2. mart_agency_performance
    - agency (VARCHAR): agency code

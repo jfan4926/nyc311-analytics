@@ -2,12 +2,20 @@ import duckdb
 import mlflow
 import mlflow.sklearn
 import pandas as pd
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from api.llm.text_to_sql import ask
+import pickle
 import os
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from api.llm.text_to_sql import ask
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_PATH = "data/processed/nyc311.duckdb"
+
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="NYC311 Analytics API",
@@ -15,16 +23,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.state.limiter = limiter
+
 # ── 启动时加载模型 ─────────────────────────────────────────
 @app.on_event("startup")
 async def load_model():
-    global model
+    global model, encoders
     runs = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
     best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
     run_id = best_run["run_id"]
     model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
-    print(f"Model loaded from run: {run_id}")
-
+    with open("ml_pipeline/models/encoders.pkl", "rb") as f:
+        encoders = pickle.load(f)
+    print(f"Model and encoders loaded from run: {run_id}")
 
 # ── Request/Response schemas ──────────────────────────────
 class QuestionRequest(BaseModel):
@@ -40,22 +51,38 @@ class PredictRequest(BaseModel):
     created_month: int
     is_weekend: bool
 
-
 # ── Endpoints ─────────────────────────────────────────────
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+# @app.post("/query")
+# @limiter.limit("10/minute")
+# def query(request: Request, req: QuestionRequest):
+#     """Natural language → SQL → results"""
+#     try:
+#         result = ask(req.question)
+#         return result
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query")
-def query(req: QuestionRequest):
-    """Natural language → SQL → results"""
+@limiter.limit("10/minute")
+def query(request: Request, req: QuestionRequest):
     try:
         result = ask(req.question)
+        # 尝试把结果转成JSON
+        try:
+            con = duckdb.connect(DB_PATH, read_only=True)
+            df = con.execute(result["sql"]).df()
+            con.close()
+            result["data"] = df.to_dict(orient="records")
+            result["columns"] = df.columns.tolist()
+        except:
+            result["data"] = None
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/predict")
 def predict(req: PredictRequest):
@@ -71,13 +98,16 @@ def predict(req: PredictRequest):
         con.close()
         hist_avg = hist_avg[0] if hist_avg else 0.0
 
-        # 注意：LabelEncoder训练时用的integer codes
-        # 这里简化处理，直接用hash取模
+        def safe_encode(encoder, value):
+            if value in encoder.classes_:
+                return int(encoder.transform([value])[0])
+            return 0
+
         features = pd.DataFrame([{
-            "agency":                    hash(req.agency) % 1000,
-            "complaint_type":            hash(req.complaint_type) % 1000,
-            "borough":                   hash(req.borough) % 1000,
-            "channel_type":              hash(req.channel_type) % 1000,
+            "agency":                    safe_encode(encoders['agency'], req.agency),
+            "complaint_type":            safe_encode(encoders['complaint_type'], req.complaint_type),
+            "borough":                   safe_encode(encoders['borough'], req.borough),
+            "channel_type":              safe_encode(encoders['channel_type'], req.channel_type),
             "created_hour":              req.created_hour,
             "created_dow":               req.created_dow,
             "created_month":             req.created_month,
@@ -96,16 +126,15 @@ def predict(req: PredictRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/stats/borough")
 def borough_stats():
     """Top boroughs by complaint volume"""
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute("""
         SELECT borough,
-               SUM(total_complaints)      AS total_complaints,
-               ROUND(AVG(avg_resolution_hours), 1) AS avg_resolution_hours,
-               ROUND(AVG(closure_rate_pct), 1)     AS closure_rate_pct
+               SUM(total_complaints)                     AS total_complaints,
+               ROUND(AVG(avg_resolution_hours), 1)       AS avg_resolution_hours,
+               ROUND(AVG(closure_rate_pct), 1)           AS closure_rate_pct
         FROM mart_complaint_trends
         WHERE borough IS NOT NULL
         GROUP BY borough
