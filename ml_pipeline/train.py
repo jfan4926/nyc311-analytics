@@ -2,6 +2,8 @@ import os
 import pickle
 import warnings
 
+import duckdb
+
 import mlflow
 import mlflow.sklearn
 import numpy as np
