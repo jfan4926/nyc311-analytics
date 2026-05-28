@@ -14,3 +14,4 @@ python-dotenv
 slowapi
 pydantic
 pyarrow
+dbt-duckdb

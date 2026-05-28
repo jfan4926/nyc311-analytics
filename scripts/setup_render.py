@@ -18,7 +18,8 @@ def download_data():
         "$order": "created_date DESC"
     })
     url = f"https://data.cityofnewyork.us/resource/erm2-nwe9.csv?{params}"
-    df  = pd.read_csv(url)
+    df = pd.read_csv(url, low_memory=False)
+
     for col in df.select_dtypes(include='object').columns:
         df[col] = df[col].astype(str)
     df.to_parquet(f"{RAW_DIR}/nyc311.parquet", index=False)
@@ -28,7 +29,7 @@ def run_dbt():
     os.makedirs(DB_DIR, exist_ok=True)
     print("Running dbt...")
     result = subprocess.run(
-        ["python", "-m", "dbt", "run", "--profiles-dir", "."],
+        ["dbt", "run", "--profiles-dir", "."],
         cwd="dbt_project/nyc311",
         capture_output=True, text=True
     )
