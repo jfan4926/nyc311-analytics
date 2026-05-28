@@ -1,24 +1,24 @@
-import streamlit as st
+import os
+import re
+import pickle
+import shap
 import duckdb
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
-import shap
-import pickle
-import mlflow
-import mlflow.sklearn
-import numpy as np
-from dotenv import load_dotenv
 import sqlparse
-import re
+import streamlit as st
 import streamlit.components.v1 as components
-import os
+from dotenv import load_dotenv
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+
+load_dotenv()
+
+DB_PATH = "data/processed/nyc311.duckdb"
+
 # ── Input validation ──────────────────────────────────────
-
-INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
-HEADERS = {"X-API-Key": INTERNAL_API_KEY}
-
 BLOCKED_PATTERNS = [
     r'\bdrop\b', r'\bdelete\b', r'\binsert\b', r'\bupdate\b',
     r'\btruncate\b', r'\bexec\b', r'\bexecute\b', r'\bunion\b',
@@ -47,64 +47,132 @@ def is_safe_sql(sql: str) -> tuple[bool, str]:
             return False, "Unsafe SQL detected."
     return True, ""
 
-# ── Gauge (arc fill, no needle, animated) ────────────────
+# ── RAG (keyword-based, no external dependencies) ────────
+def retrieve_context(question: str, n_results: int = 3) -> str:
+    q = question.lower()
+    docs = {
+        "trends": """Table mart_complaint_trends (already aggregated, one row per week+borough+complaint_type).
+To get totals use SUM() with GROUP BY.
+Columns: week, borough, complaint_type, total_complaints,
+closed_complaints, avg_resolution_hours, closure_rate_pct.""",
+
+        "agency": """Table mart_agency_performance (one row per agency+complaint_type).
+Columns: agency, agency_name, complaint_type, total_complaints,
+avg_resolution_hours, p90_resolution_hours, pct_over_1_week.""",
+
+        "features": """Table mart_ml_features (one row per complaint).
+Columns: unique_key, created_at, resolution_hours, agency, complaint_type,
+borough, channel_type, created_hour, created_dow, created_month,
+is_weekend, hist_avg_resolution_hours, is_overdue (1=overdue, 0=on time).""",
+
+        "example_volume": """Example - top complaint types by volume:
+SELECT complaint_type, SUM(total_complaints) AS total
+FROM mart_complaint_trends
+GROUP BY complaint_type ORDER BY total DESC LIMIT 5""",
+
+        "example_borough": """Example - closure rate by borough:
+SELECT borough, ROUND(AVG(closure_rate_pct),1) AS avg_closure_rate
+FROM mart_complaint_trends WHERE borough IS NOT NULL
+GROUP BY borough ORDER BY avg_closure_rate DESC""",
+
+        "example_agency": """Example - worst agency resolution time:
+SELECT agency_name, ROUND(AVG(avg_resolution_hours),1) AS avg_hours
+FROM mart_agency_performance
+GROUP BY agency_name ORDER BY avg_hours DESC LIMIT 5""",
+
+        "example_overdue": """Example - most overdue complaint types:
+SELECT complaint_type, ROUND(AVG(is_overdue)*100,1) AS overdue_pct
+FROM mart_ml_features WHERE is_overdue IS NOT NULL
+GROUP BY complaint_type HAVING COUNT(*)>=100
+ORDER BY overdue_pct DESC LIMIT 10""",
+    }
+    keywords = {
+        "trends":          ["trend","week","volume","borough","closure","type","complaint"],
+        "agency":          ["agency","department","performance","resolution","slow","fast"],
+        "features":        ["overdue","delay","predict","ml","feature","channel","hour"],
+        "example_volume":  ["top","most","volume","count","popular"],
+        "example_borough": ["borough","closure","rate","brooklyn","manhattan","bronx","queens"],
+        "example_agency":  ["agency","worst","best","resolution","time"],
+        "example_overdue": ["overdue","delay","late","risk"],
+    }
+    scores = {k: sum(1 for kw in v if kw in q) for k, v in keywords.items()}
+    scores["trends"] += 1
+    top_ids  = sorted(scores, key=scores.get, reverse=True)[:n_results]
+    return "\n\n---\n\n".join(docs[i] for i in top_ids)
+
+# ── Text-to-SQL ───────────────────────────────────────────
+def query_database(sql: str) -> tuple[str, pd.DataFrame | None]:
+    try:
+        con = duckdb.connect(DB_PATH, read_only=True)
+        df  = con.execute(sql).df()
+        con.close()
+        if df.empty:
+            return "No results found.", None
+        return df.to_string(index=False), df
+    except Exception as e:
+        return f"SQL Error: {e}", None
+
+def ask(question: str) -> dict:
+    llm     = ChatGroq(model="llama-3.1-8b-instant")
+    context = retrieve_context(question)
+    prompt  = ChatPromptTemplate.from_messages([
+        ("system", f"""You are a SQL expert for a NYC 311 complaints database.
+
+Use the following relevant schema and examples to write accurate DuckDB SQL:
+
+{context}
+
+Rules:
+- Return ONLY the SQL query, no explanation, no markdown, no backticks
+- Use only the tables shown above
+- Always use LIMIT not TOP
+- For mart_complaint_trends: always use SUM() or AVG() with GROUP BY for totals
+- For borough names use uppercase (BROOKLYN, QUEENS, MANHATTAN, BRONX, STATEN ISLAND)
+- For aggregation queries no LIMIT needed unless specified
+"""),
+        ("human", "{question}")
+    ])
+    sql            = (prompt | llm).invoke({"question": question}).content.strip()
+    results_str, df = query_database(sql)
+    return {
+        "question": question,
+        "sql":      sql,
+        "results":  results_str,
+        "data":     df.to_dict(orient="records") if df is not None else None,
+    }
+
+# ── Gauge ─────────────────────────────────────────────────
 def make_gauge(proba: float, pred: int) -> str:
     pct       = round(float(proba) * 100, 1)
     label     = "HIGH RISK OF DELAY" if pred == 1 else "LIKELY ON TIME"
     icon      = "⚠" if pred == 1 else "✔"
     label_col = "#e74c3c" if pred == 1 else "#27ae60"
-    total_len = 314.0          # π × r=100, semicircle pathLength
+    total_len = 314.0
     fill_len  = total_len * float(proba)
-
-    if pct < 30:
-        arc_color = "#27ae60"
-    elif pct < 60:
-        arc_color = "#f1c40f"
-    else:
-        arc_color = "#e74c3c"
-
+    arc_color = "#27ae60" if pct < 30 else ("#f1c40f" if pct < 60 else "#e74c3c")
     return f"""<!DOCTYPE html>
-<html>
-<head>
-<style>
+<html><head><style>
   * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{
-    background:transparent;
-    display:flex; justify-content:center; align-items:center;
-    height:210px; overflow:hidden;
-  }}
+  body {{ background:transparent; display:flex; justify-content:center;
+          align-items:center; height:210px; overflow:hidden; }}
   .wrap {{ position:relative; width:300px; height:170px; }}
   svg   {{ position:absolute; top:0; left:0; width:300px; height:170px; }}
-  #arc-fill {{
-    stroke-dasharray: 0 {total_len:.1f};
-    transition: stroke-dasharray 1.4s cubic-bezier(.17,.67,.35,1.2);
-  }}
-  .info {{
-    position:absolute;
-    bottom:10px; left:0; right:0;
-    text-align:center;
-    font-family:'Segoe UI',system-ui,sans-serif;
-  }}
+  #arc-fill {{ stroke-dasharray: 0 {total_len:.1f};
+               transition: stroke-dasharray 1.4s cubic-bezier(.17,.67,.35,1.2); }}
+  .info {{ position:absolute; bottom:10px; left:0; right:0; text-align:center;
+           font-family:'Segoe UI',system-ui,sans-serif; }}
   .pct  {{ font-size:38px; font-weight:800; color:{label_col}; line-height:1; }}
   .lbl  {{ font-size:12px; font-weight:600; color:{label_col};
            letter-spacing:.6px; margin-top:3px; }}
-  .zone {{ font-size:10px; font-weight:600; fill:#bbb; }}
-</style>
-</head>
+</style></head>
 <body>
 <div class="wrap">
   <svg viewBox="0 0 300 165">
-    <!-- background track -->
     <path d="M 18 148 A 132 132 0 0 1 282 148"
-          fill="none" stroke="#ecf0f1"
-          stroke-width="20" stroke-linecap="round"/>
-    <!-- animated fill -->
-    <path id="arc-fill"
-          d="M 18 148 A 132 132 0 0 1 282 148"
-          fill="none" stroke="{arc_color}"
-          stroke-width="20" stroke-linecap="round"
+          fill="none" stroke="#ecf0f1" stroke-width="20" stroke-linecap="round"/>
+    <path id="arc-fill" d="M 18 148 A 132 132 0 0 1 282 148"
+          fill="none" stroke="{arc_color}" stroke-width="20" stroke-linecap="round"
           pathLength="{total_len:.1f}"/>
-
   </svg>
   <div class="info">
     <div class="pct">{pct}%</div>
@@ -119,23 +187,13 @@ def make_gauge(proba: float, pred: int) -> str:
     }}, 80);
   }});
 </script>
-</body>
-</html>"""
+</body></html>"""
 
-# ── Config ────────────────────────────────────────────────
-load_dotenv()
-DB_PATH = "data/processed/nyc311.duckdb"
-API_URL = "http://127.0.0.1:8000"
-
-st.set_page_config(page_title="NYC 311 Analytics", page_icon="🗽", layout="wide")
-
-# ── Load model (cached) ───────────────────────────────────
+# ── Model (cached) ────────────────────────────────────────
 @st.cache_resource
 def load_model_and_encoders():
-    runs     = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
-    best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
-    run_id   = best_run["run_id"]
-    model    = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+    with open("ml_pipeline/models/model.pkl", "rb") as f:
+        model = pickle.load(f)
     with open("ml_pipeline/models/encoders.pkl", "rb") as f:
         encoders = pickle.load(f)
     return model, encoders
@@ -164,7 +222,9 @@ def safe_encode(encoder, value):
         return int(encoder.transform([value])[0])
     return 0
 
-# ── Header ────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────
+st.set_page_config(page_title="NYC 311 Analytics", page_icon="🗽", layout="wide")
+
 st.markdown("""
 <h1 style='text-align:center;color:#1f77b4;'>🗽 NYC 311 Complaint Analytics</h1>
 <p style='text-align:center;color:gray;font-size:16px;'>
@@ -292,13 +352,11 @@ with tab2:
                 s1.update(label="✅ Step 1: Question understood",
                           state="complete", expanded=True)
 
+        result = None
         with cs2:
             with st.status("Step 2: Generating SQL...", expanded=True) as s2:
                 try:
-                    resp   = requests.post(f"{API_URL}/query",
-                                           json={"question": question},
-                                            headers=HEADERS)
-                    result = resp.json()
+                    result = ask(question)
                     sql    = result["sql"]
 
                     sql_safe, sql_err = is_safe_sql(sql)
@@ -318,20 +376,20 @@ with tab2:
                 except Exception as e:
                     s2.update(label="❌ Step 2: Failed",
                               state="error", expanded=True)
-                    st.error(f"API error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
                     st.stop()
 
         with cs3:
             with st.status("Step 3: Querying DuckDB...", expanded=True) as s3:
                 st.write("Executing against mart tables...")
-                if result.get("data"):
+                if result and result.get("data"):
                     st.write(f"✓ Retrieved **{len(result['data'])}** rows")
                 s3.update(label="✅ Step 3: Results ready",
                           state="complete", expanded=True)
 
         st.divider()
 
-        if result.get("data"):
+        if result and result.get("data"):
             df_result  = pd.DataFrame(result["data"])
             num_cols   = df_result.select_dtypes(include='number').columns.tolist()
             str_cols   = df_result.select_dtypes(exclude='number').columns.tolist()
@@ -359,7 +417,7 @@ with tab2:
                         st.metric(col, f"{df_result[col][0]:,.1f}")
                 else:
                     st.dataframe(df_result)
-        else:
+        elif result:
             st.text(result.get("results", "No results"))
 
         # # Legacy text-parsing fallback (kept for reference)
@@ -420,8 +478,6 @@ with tab3:
     with col_out:
         if predict_btn:
             with st.spinner("Running model + SHAP analysis..."):
-
-                # ── Build features ──
                 con      = duckdb.connect(DB_PATH, read_only=True)
                 hist_row = con.execute("""
                     SELECT COALESCE(hist_avg_resolution_hours, 0)
@@ -448,11 +504,9 @@ with tab3:
                 pred  = int(proba >= 0.5)
                 pct   = int(proba * 100)
 
-                # ── Gauge ──
                 st.markdown("### 🎯 Prediction Result")
                 components.html(make_gauge(proba, pred), height=220)
 
-                # ── Risk badge ──
                 if pct < 30:
                     st.success("🟢 LOW RISK — Complaint likely resolved on time")
                 elif pct < 60:
@@ -462,7 +516,6 @@ with tab3:
 
                 st.divider()
 
-                # ── SHAP waterfall ──
                 st.markdown("### 🔍 Why did the model predict this?")
                 st.caption("SHAP values: each feature's contribution to the prediction")
 
@@ -500,7 +553,6 @@ with tab3:
                 )
                 st.plotly_chart(fig_shap, use_container_width=True)
 
-                # ── Overall feature importance ──
                 st.markdown("### 📊 Overall Model Feature Importance")
                 st.caption("Based on all training data, not just this prediction")
 
