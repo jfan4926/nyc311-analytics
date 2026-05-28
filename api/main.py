@@ -38,13 +38,18 @@ app.state.limiter = limiter
 @app.on_event("startup")
 async def load_model():
     global model, encoders
-    runs = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
-    best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
-    run_id = best_run["run_id"]
-    model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
-    with open("ml_pipeline/models/encoders.pkl", "rb") as f:
-        encoders = pickle.load(f)
-    print(f"Model and encoders loaded from run: {run_id}")
+    try:
+        runs = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
+        best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
+        run_id = best_run["run_id"]
+        model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+        with open("ml_pipeline/models/encoders.pkl", "rb") as f:
+            encoders = pickle.load(f)
+        print(f"Model loaded: {run_id}")
+    except Exception as e:
+        print(f"Warning: Model loading failed: {e}")
+        model = None
+        encoders = None
 
 # ── Request/Response schemas ──────────────────────────────
 class QuestionRequest(BaseModel):
@@ -95,8 +100,9 @@ def query(request: Request, req: QuestionRequest,
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict")
-def predict(req: PredictRequest,
-            _: str = Security(verify_api_key)):
+def predict(req: PredictRequest, _: str = Security(verify_api_key)):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
     """Predict if a complaint will be overdue"""
     try:
         con = duckdb.connect(DB_PATH, read_only=True)
