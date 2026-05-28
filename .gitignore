@@ -6,7 +6,7 @@ __pycache__/
 
 # 数据文件
 data/raw/
-data/processed/
+#data/processed/
 *.parquet
 *.csv
 
