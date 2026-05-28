@@ -39,6 +39,8 @@ jobs:
           df.to_parquet('data/raw/nyc311.parquet', index=False)
           print(f'Downloaded {len(df)} rows')
           "
+      - name: Create output directory
+        run: mkdir -p data/processed
 
       - name: Create dbt profiles
         run: |

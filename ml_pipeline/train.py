@@ -14,6 +14,7 @@ import optuna
 import warnings
 warnings.filterwarnings('ignore')
 import pickle, os
+
 # ── 1. 读取数据 ──────────────────────────────────────────
 DB_PATH = "data/processed/nyc311.duckdb"
 
@@ -136,8 +137,8 @@ def train():
         with open("ml_pipeline/models/encoders.pkl", "wb") as f:
             pickle.dump(encoders, f)
         print("Encoders saved.")
-        
-        print(f"\n── Test Results ──")
+
+        print("\n── Test Results ──")
         print(f"AUC:       {auc:.4f}")
         print(f"Precision: {report['1']['precision']:.4f}")
         print(f"Recall:    {report['1']['recall']:.4f}")

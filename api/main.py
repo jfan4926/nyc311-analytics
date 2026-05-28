@@ -78,7 +78,7 @@ def query(request: Request, req: QuestionRequest):
             con.close()
             result["data"] = df.to_dict(orient="records")
             result["columns"] = df.columns.tolist()
-        except:
+        except Exception:
             result["data"] = None
         return result
     except Exception as e:

@@ -1,12 +1,12 @@
-import duckdb
 import os
+import sys
+import duckdb
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
-import sys, os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from api.llm.rag import retrieve_context
-load_dotenv()
 
 DB_PATH = "data/processed/nyc311.duckdb"
 
