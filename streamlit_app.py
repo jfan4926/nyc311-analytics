@@ -13,8 +13,12 @@ from dotenv import load_dotenv
 import sqlparse
 import re
 import streamlit.components.v1 as components
-
+import os
 # ── Input validation ──────────────────────────────────────
+
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+HEADERS = {"X-API-Key": INTERNAL_API_KEY}
+
 BLOCKED_PATTERNS = [
     r'\bdrop\b', r'\bdelete\b', r'\binsert\b', r'\bupdate\b',
     r'\btruncate\b', r'\bexec\b', r'\bexecute\b', r'\bunion\b',
@@ -292,7 +296,8 @@ with tab2:
             with st.status("Step 2: Generating SQL...", expanded=True) as s2:
                 try:
                     resp   = requests.post(f"{API_URL}/query",
-                                           json={"question": question})
+                                           json={"question": question},
+                                            headers=HEADERS)
                     result = resp.json()
                     sql    = result["sql"]
 

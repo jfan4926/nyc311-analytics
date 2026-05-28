@@ -10,12 +10,21 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from api.llm.text_to_sql import ask
 from dotenv import load_dotenv
-
+from fastapi.security import APIKeyHeader
+from fastapi import Security
 load_dotenv()
 
 DB_PATH = "data/processed/nyc311.duckdb"
 
 limiter = Limiter(key_func=get_remote_address)
+
+API_KEY = os.getenv("INTERNAL_API_KEY", "")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_api_key(key: str = Security(api_key_header)):
+    if API_KEY and key != API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return key
 
 app = FastAPI(
     title="NYC311 Analytics API",
@@ -68,7 +77,8 @@ def health():
 
 @app.post("/query")
 @limiter.limit("10/minute")
-def query(request: Request, req: QuestionRequest):
+def query(request: Request, req: QuestionRequest,
+          _: str = Security(verify_api_key)):
     try:
         result = ask(req.question)
         # 尝试把结果转成JSON
@@ -85,7 +95,8 @@ def query(request: Request, req: QuestionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict")
-def predict(req: PredictRequest):
+def predict(req: PredictRequest,
+            _: str = Security(verify_api_key)):
     """Predict if a complaint will be overdue"""
     try:
         con = duckdb.connect(DB_PATH, read_only=True)
@@ -142,3 +153,6 @@ def borough_stats():
     """).df()
     con.close()
     return df.to_dict(orient="records")
+
+
+
