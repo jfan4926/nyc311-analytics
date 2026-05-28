@@ -1,20 +1,24 @@
-import duckdb
-import pandas as pd
-import numpy as np
+import os
+import pickle
+import warnings
+
 import mlflow
 import mlflow.sklearn
+import numpy as np
+import optuna
+import pandas as pd
+import xgboost as xgb
+from sklearn.metrics import (
+    classification_report,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (
-    mean_absolute_error, mean_squared_error, r2_score,
-    classification_report, roc_auc_score
-)
-import xgboost as xgb
-import optuna
-import warnings
-warnings.filterwarnings('ignore')
-import pickle, os
 
+warnings.filterwarnings('ignore')
 # ── 1. 读取数据 ──────────────────────────────────────────
 DB_PATH = "data/processed/nyc311.duckdb"
 
