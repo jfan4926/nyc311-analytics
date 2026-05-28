@@ -19,6 +19,8 @@ def download_data():
     })
     url = f"https://data.cityofnewyork.us/resource/erm2-nwe9.csv?{params}"
     df  = pd.read_csv(url)
+    for col in df.select_dtypes(include='object').columns:
+        df[col] = df[col].astype(str)
     df.to_parquet(f"{RAW_DIR}/nyc311.parquet", index=False)
     print(f"Downloaded {len(df):,} rows")
 
