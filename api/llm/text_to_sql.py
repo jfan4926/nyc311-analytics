@@ -3,7 +3,9 @@ import os
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
-
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from api.llm.rag import retrieve_context
 load_dotenv()
 
 DB_PATH = "data/processed/nyc311.duckdb"
@@ -85,25 +87,61 @@ def query_database(sql: str) -> str:
         return f"SQL Error: {e}"
 
 
+
+#RAG Version
 def ask(question: str) -> dict:
     """Takes natural language question, returns SQL + results."""
     llm = ChatGroq(model="llama-3.1-8b-instant")
-    chain = PROMPT | llm
 
-    # 生成SQL
-    sql = chain.invoke({
-        "schema": SCHEMA,
-        "question": question
-    }).content.strip()
+    # RAG: 检索相关schema和示例
+    context = retrieve_context(question)
 
-    # 执行SQL
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", f"""You are a SQL expert for a NYC 311 complaints database.
+
+Use the following relevant schema and examples to write accurate DuckDB SQL:
+
+{context}
+
+Rules:
+- Return ONLY the SQL query, no explanation, no markdown, no backticks
+- Use only the tables shown above
+- Always use LIMIT not TOP
+- For mart_complaint_trends: it has one row per week per borough per complaint_type, so always use SUM() or AVG() with GROUP BY for totals
+- For borough names use uppercase (BROOKLYN, QUEENS, MANHATTAN, BRONX, STATEN ISLAND)
+- For aggregation queries no LIMIT needed unless specified
+"""),
+        ("human", "{question}")
+    ])
+
+    chain = prompt | llm
+    sql   = chain.invoke({"question": question}).content.strip()
     results = query_database(sql)
 
     return {
         "question": question,
-        "sql": sql,
-        "results": results
+        "sql":      sql,
+        "results":  results
     }
+# def ask(question: str) -> dict:
+#     """Takes natural language question, returns SQL + results."""
+#     llm = ChatGroq(model="llama-3.1-8b-instant")
+#     chain = PROMPT | llm
+
+#     # 生成SQL
+#     sql = chain.invoke({
+#         "schema": SCHEMA,
+#         "question": question
+#     }).content.strip()
+
+#     # 执行SQL
+#     results = query_database(sql)
+
+#     return {
+#         "question": question,
+#         "sql": sql,
+#         "results": results
+#     }
 
 
 if __name__ == "__main__":
