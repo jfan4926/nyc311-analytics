@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+duckdb
+pandas
+mlflow
+xgboost
+scikit-learn
+langchain-groq
+langchain-core
+langchain-community
+chromadb
+sentence-transformers
+python-dotenv
+slowapi
+pydantic
+pyarrow
