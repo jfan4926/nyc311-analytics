@@ -14,4 +14,6 @@ python-dotenv
 slowapi
 pydantic
 pyarrow
-dbt-duckdb
+
+dbt-duckdb==1.9.0
+dbt-core==1.9.0
