@@ -27,6 +27,39 @@ def download_data():
 
 def run_dbt():
     os.makedirs(DB_DIR, exist_ok=True)
+    
+    # 动态生成profiles.yml
+    workspace = os.path.abspath(".")
+    profiles_content = f"""nyc311:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{workspace}/data/processed/nyc311.duckdb"
+      threads: 2
+      external_root: "{workspace}"
+"""
+    with open("dbt_project/nyc311/profiles.yml", "w") as f:
+        f.write(profiles_content)
+    
+    # 同时更新dbt_project.yml里的raw_data_path
+    dbt_project_path = "dbt_project/nyc311/dbt_project.yml"
+    with open(dbt_project_path, "r") as f:
+        content = f.read()
+    content = content.replace(
+        "raw_data_path:",
+        f"raw_data_path: \"{workspace}/data/raw\" #"
+    )
+    # 更简单的方式：直接用sed逻辑
+    import re
+    content = re.sub(
+        r'raw_data_path:.*',
+        f'raw_data_path: "{workspace}/data/raw"',
+        content
+    )
+    with open(dbt_project_path, "w") as f:
+        f.write(content)
+
     print("Running dbt...")
     result = subprocess.run(
         ["dbt", "run", "--profiles-dir", "."],
