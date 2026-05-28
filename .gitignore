@@ -31,4 +31,4 @@ mlflow.db
 Thumbs.db
 
 #RAG
-api/llm/chroma_store/
+api/llm/chroma_store/ml_pipeline/models/*.pkl
