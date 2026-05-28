@@ -39,17 +39,30 @@ app.state.limiter = limiter
 async def load_model():
     global model, encoders
     try:
-        runs = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
-        best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
-        run_id = best_run["run_id"]
-        model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+        with open("ml_pipeline/models/model.pkl", "rb") as f:
+            model = pickle.load(f)
         with open("ml_pipeline/models/encoders.pkl", "rb") as f:
             encoders = pickle.load(f)
-        print(f"Model loaded: {run_id}")
+        print("Model and encoders loaded from pickle")
     except Exception as e:
         print(f"Warning: Model loading failed: {e}")
         model = None
         encoders = None
+# @app.on_event("startup")
+# async def load_model():
+#     global model, encoders
+#     try:
+#         runs = mlflow.search_runs(experiment_names=["nyc311-overdue-prediction"])
+#         best_run = runs.sort_values("metrics.test_auc", ascending=False).iloc[0]
+#         run_id = best_run["run_id"]
+#         model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+#         with open("ml_pipeline/models/encoders.pkl", "rb") as f:
+#             encoders = pickle.load(f)
+#         print(f"Model loaded: {run_id}")
+#     except Exception as e:
+#         print(f"Warning: Model loading failed: {e}")
+#         model = None
+#         encoders = None
 
 # ── Request/Response schemas ──────────────────────────────
 class QuestionRequest(BaseModel):

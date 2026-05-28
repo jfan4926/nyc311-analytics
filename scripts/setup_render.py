@@ -98,24 +98,39 @@ def run_dbt():
         print("Warning: dbt tests failed (non-fatal)")
         print(test.stderr)
 
-
 def train_model():
-    if os.path.exists("ml_pipeline/models/encoders.pkl"):
+    if os.path.exists("ml_pipeline/models/model.pkl"):
         print("Model already exists, skipping training")
         return
-    print("Training model (this may take a few minutes)...")
+    print("Training model...")
     os.makedirs("ml_pipeline/models", exist_ok=True)
     os.makedirs("ml_pipeline/data", exist_ok=True)
     result = subprocess.run(
         ["python", "ml_pipeline/train.py"],
-        capture_output=True,
-        text=True
+        capture_output=True, text=True
     )
     print(result.stdout)
     if result.returncode != 0:
-        print("=== train stderr ===")
         print(result.stderr)
         raise RuntimeError("Model training failed")
+
+# def train_model():
+#     if os.path.exists("ml_pipeline/models/encoders.pkl"):
+#         print("Model already exists, skipping training")
+#         return
+#     print("Training model (this may take a few minutes)...")
+#     os.makedirs("ml_pipeline/models", exist_ok=True)
+#     os.makedirs("ml_pipeline/data", exist_ok=True)
+#     result = subprocess.run(
+#         ["python", "ml_pipeline/train.py"],
+#         capture_output=True,
+#         text=True
+#     )
+#     print(result.stdout)
+#     if result.returncode != 0:
+#         print("=== train stderr ===")
+#         print(result.stderr)
+#         raise RuntimeError("Model training failed")
 
 
 def build_rag():
