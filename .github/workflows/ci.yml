@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  dbt-test:
+    name: dbt Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-duckdb duckdb pandas pyarrow
+
+      - name: Download sample data
+        run: |
+          python -c "
+          import pandas as pd, urllib.parse
+          params = urllib.parse.urlencode({
+              '\$limit': 5000,
+              '\$where': \"created_date >= '2023-01-01'\",
+              '\$order': 'created_date DESC'
+          })
+          url = f'https://data.cityofnewyork.us/resource/erm2-nwe9.csv?{params}'
+          df = pd.read_csv(url)
+          import os; os.makedirs('data/raw', exist_ok=True)
+          df.to_parquet('data/raw/nyc311.parquet', index=False)
+          print(f'Downloaded {len(df)} rows')
+          "
+
+      - name: Create dbt profiles
+        run: |
+          cat > dbt_project/nyc311/profiles.yml << 'EOF'
+          nyc311:
+            target: dev
+            outputs:
+              dev:
+                type: duckdb
+                path: "../../data/processed/nyc311.duckdb"
+                threads: 2
+                external_root: "${{ github.workspace }}"
+          EOF
+
+      - name: Update dbt_project.yml vars
+        run: |
+          cd dbt_project/nyc311
+          sed -i "s|raw_data_path:.*|raw_data_path: \"${{ github.workspace }}/data/raw\"|" dbt_project.yml
+
+      - name: Run dbt
+        run: |
+          cd dbt_project/nyc311
+          dbt run --profiles-dir .
+
+      - name: Run dbt tests
+        run: |
+          cd dbt_project/nyc311
+          dbt test --profiles-dir .
+
+  lint:
+    name: Python Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint
+        run: ruff check ml_pipeline/ api/ --ignore E501,F401
