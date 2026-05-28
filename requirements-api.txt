@@ -8,8 +8,8 @@ scikit-learn
 langchain-groq
 langchain-core
 langchain-community
-chromadb
-sentence-transformers
+# chromadb
+# sentence-transformers
 python-dotenv
 slowapi
 pydantic
@@ -17,6 +17,3 @@ pyarrow
 
 dbt-duckdb
 dbt-core
-
-chromadb
-sentence-transformers
