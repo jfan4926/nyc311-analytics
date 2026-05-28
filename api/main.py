@@ -12,12 +12,13 @@ from api.llm.text_to_sql import ask
 from dotenv import load_dotenv
 from fastapi.security import APIKeyHeader
 from fastapi import Security
+
 load_dotenv()
 # #render debug
 # import sys
 # print(f"Starting up, Python {sys.version}", flush=True)
 # DB_PATH = "data/processed/nyc311.duckdb"
-
+DB_PATH = "data/processed/nyc311.duckdb"
 limiter = Limiter(key_func=get_remote_address)
 
 API_KEY = os.getenv("INTERNAL_API_KEY", "")
