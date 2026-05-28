@@ -15,5 +15,8 @@ slowapi
 pydantic
 pyarrow
 
-dbt-duckdb==1.9.0
-dbt-core==1.9.0
+dbt-duckdb
+dbt-core
+
+chromadb
+sentence-transformers
