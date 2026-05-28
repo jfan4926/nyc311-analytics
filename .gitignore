@@ -29,3 +29,6 @@ mlflow.db
 
 # OS
 Thumbs.db
+
+#RAG
+api/llm/chroma_store/
