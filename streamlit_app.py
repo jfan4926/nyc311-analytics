@@ -253,6 +253,107 @@ with tab1:
     fig4.update_traces(textposition='top center')
     fig4.update_layout(plot_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig4, use_container_width=True)
+    
+    #heatmap
+    st.subheader("🗺 Complaint Density Heatmap")
+    st.caption("Geographic distribution of complaints — darker = higher density")
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        selected_borough = st.selectbox(
+            "Filter by Borough",
+            ["All"] + ["BRONX","BROOKLYN","MANHATTAN","QUEENS","STATEN ISLAND"],
+            key="map_borough"
+        )
+    with col_f2:
+        selected_type = st.selectbox(
+            "Filter by Complaint Type",
+            ["All", "ILLEGAL PARKING", "NOISE - RESIDENTIAL",
+             "BLOCKED DRIVEWAY", "HEAT/HOT WATER", "STREET CONDITION",
+             "RODENT", "UNSANITARY CONDITION", "ABANDONED VEHICLE"],
+            key="map_type"
+        )
+
+    borough_filter = f"AND borough = '{selected_borough}'" if selected_borough != "All" else ""
+    type_filter = f"AND complaint_type = '{selected_type}'" if selected_type != "All" else ""
+
+    # map_df = con.execute(f"""
+    #     SELECT latitude, longitude, complaint_type, borough, resolution_hours
+    #     FROM stg_complaints
+    #     WHERE latitude IS NOT NULL
+    #       AND longitude IS NOT NULL
+    #       AND latitude BETWEEN 40.4 AND 41.0
+    #       AND longitude BETWEEN -74.3 AND -73.7
+    #       {borough_filter}
+    #       {type_filter}
+    #     LIMIT 50000
+    # """).df()
+
+    # map_df = con.execute("""
+    #     SELECT
+    #         latitude,
+    #         longitude,
+    #         complaint_type,
+    #         borough,
+    #         resolution_hours
+    #     FROM stg_complaints
+    #     WHERE latitude IS NOT NULL
+    #       AND longitude IS NOT NULL
+    #       AND latitude BETWEEN 40.4 AND 41.0
+    #       AND longitude BETWEEN -74.3 AND -73.7
+    #     LIMIT 50000
+    # """).df()
+    BOROUGH_CENTERS = {
+        "BRONX":         {"lat": 40.8448, "lon": -73.8648},
+        "BROOKLYN":      {"lat": 40.6782, "lon": -73.9442},
+        "MANHATTAN":     {"lat": 40.7831, "lon": -73.9712},
+        "QUEENS":        {"lat": 40.7282, "lon": -73.7949},
+        "STATEN ISLAND": {"lat": 40.5795, "lon": -74.1502},
+        "All":           {"lat": 40.7128, "lon": -74.0060},
+    }
+
+    map_center = BOROUGH_CENTERS[selected_borough]
+    map_zoom   = 10 if selected_borough == "All" else 12
+    map_df = con.execute(f"""
+        SELECT latitude, longitude, complaint_type, borough, resolution_hours
+        FROM stg_complaints
+        WHERE latitude IS NOT NULL
+          AND longitude IS NOT NULL
+          AND latitude BETWEEN 40.4 AND 41.0
+          AND longitude BETWEEN -74.3 AND -73.7
+          {borough_filter}
+          {type_filter}
+        ORDER BY RANDOM()
+        LIMIT 30000
+    """).df()
+
+    if selected_type == "All":
+        color_scale = "Blues"
+    else:
+        color_scale = "Reds"
+
+    fig_map = px.density_mapbox(
+        map_df,
+        lat="latitude",
+        lon="longitude",
+        center=map_center,
+        zoom=map_zoom,
+        radius=5,
+        # center={"lat": 40.7128, "lon": -74.0060},
+        # zoom=10,
+        mapbox_style="carto-positron",
+        color_continuous_scale=color_scale,
+        opacity=0.7,
+        hover_data=["complaint_type", "borough"],
+        labels={"z": "Density"}
+    )
+    fig_map.update_layout(
+        height=500,
+        margin=dict(l=0, r=0, t=0, b=0),
+        coloraxis_showscale=False
+    )
+    st.plotly_chart(fig_map, use_container_width=True)
+
     con.close()
 
 # ════════════════════════════════════════════════════════
