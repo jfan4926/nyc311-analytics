@@ -239,6 +239,18 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Ask the Data", "🔮 Predict
 # TAB 1: DASHBOARD
 # ════════════════════════════════════════════════════════
 with tab1:
+    st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] {
+        text-align: center !important;
+    }
+    [data-testid="stMetricLabel"] {
+        width: 100% !important;
+        text-align: center !important;
+        display: block !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     con  = duckdb.connect(DB_PATH, read_only=True)
     kpis = con.execute("""
         SELECT SUM(total_complaints)               AS total_complaints,
@@ -248,10 +260,36 @@ with tab1:
     """).df()
 
     c1, c2, c3, c4 = st.columns(4)
+    
     c1.metric("🗂 Total Complaints", f"{int(kpis['total_complaints'][0]):,}")
     c2.metric("⏱ Avg Resolution",    f"{kpis['avg_resolution_hours'][0]}h")
     c3.metric("✅ Closure Rate",      f"{kpis['avg_closure_rate'][0]}%")
     c4.metric("📍 Boroughs",          "5")
+    components.html("""
+    <script>
+    setTimeout(() => {
+        const metrics = window.parent.document.querySelectorAll('[data-testid="stMetricValue"]');
+        metrics.forEach(el => {
+            const text = el.innerText.replace(/[^0-9.]/g, '');
+            const target = parseFloat(text);
+            if (isNaN(target)) return;
+            const suffix = el.innerText.replace(/[0-9.,]/g, '');
+            const isFloat = el.innerText.includes('.');
+            let current = 0;
+            const steps = 50;
+            const increment = target / steps;
+            el.innerText = isFloat ? '0' + suffix : '0';
+            const timer = setInterval(() => {
+                current += increment;
+                if (current >= target) { current = target; clearInterval(timer); }
+                el.innerText = isFloat
+                    ? current.toFixed(1) + suffix
+                    : Math.floor(current).toLocaleString() + suffix;
+            }, 1200 / steps);
+        });
+    }, 200);
+    </script>
+    """, height=0)
     st.divider()
 
     cl, cr = st.columns(2)
