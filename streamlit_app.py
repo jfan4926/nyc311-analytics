@@ -112,15 +112,25 @@ def query_database(sql: str) -> tuple[str, pd.DataFrame | None]:
     except Exception as e:
         return f"SQL Error: {e}", None
 
-def ask(question: str) -> dict:
+def ask(question: str, history: list = None) -> dict:
+    if history is None:
+        history = []
     llm     = ChatGroq(model="llama-3.1-8b-instant")
     context = retrieve_context(question)
-    prompt  = ChatPromptTemplate.from_messages([
+
+    # 把历史放进system message
+    history_context = ""
+    for h in history[-3:]:
+        history_context += f"\nPrevious Q: {h['question']}\nPrevious SQL: {h['sql']}\nPrevious result:\n{h.get('summary','')}\n"
+
+    prompt = ChatPromptTemplate.from_messages([
         ("system", f"""You are a SQL expert for a NYC 311 complaints database.
 
 Use the following relevant schema and examples to write accurate DuckDB SQL:
 
 {context}
+
+{f"Previous conversation context:{history_context}" if history_context else ""}
 
 Rules:
 - Return ONLY the SQL query, no explanation, no markdown, no backticks
@@ -129,9 +139,11 @@ Rules:
 - For mart_complaint_trends: always use SUM() or AVG() with GROUP BY for totals
 - For borough names use uppercase (BROOKLYN, QUEENS, MANHATTAN, BRONX, STATEN ISLAND)
 - For aggregation queries no LIMIT needed unless specified
+- If user uses pronouns like 'their', 'it', 'that', refer to previous result to identify the specific entity
 """),
         ("human", "{question}")
     ])
+
     sql            = (prompt | llm).invoke({"question": question}).content.strip()
     results_str, df = query_database(sql)
     return {
@@ -532,6 +544,10 @@ with tab2:
     if col_ex3.button("🏢 Worst agency resolution time?"):
         st.session_state.question = "Which agency has the worst average resolution time?"
 
+    #chat history
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+        
     question = st.text_input(
         "Your question:",
         value=st.session_state.get("question", ""),
@@ -558,7 +574,8 @@ with tab2:
         with cs2:
             with st.status("Step 2: Generating SQL...", expanded=True) as s2:
                 try:
-                    result = ask(question)
+                    result = ask(question, st.session_state.chat_history)
+
                     sql    = result["sql"]
 
                     sql_safe, sql_err = is_safe_sql(sql)
@@ -588,6 +605,17 @@ with tab2:
                     st.write(f"✓ Retrieved **{len(result['data'])}** rows")
                 s3.update(label="✅ Step 3: Results ready",
                           state="complete", expanded=True)
+        if result and result.get("sql"):
+            # let LLM know the previous result
+            summary = ""
+            if result.get("data") and len(result["data"]) > 0:
+                df_tmp = pd.DataFrame(result["data"])
+                summary = df_tmp.head(3).to_string(index=False)
+            st.session_state.chat_history.append({
+                "question": question,
+                "sql": result["sql"],
+                "summary": summary
+            })
 
         st.divider()
 
@@ -621,6 +649,16 @@ with tab2:
                     st.dataframe(df_result)
         elif result:
             st.text(result.get("results", "No results"))
+            # ── 对话历史 ──
+        if len(st.session_state.chat_history) > 1:
+            with st.expander(f"💬 Conversation History ({len(st.session_state.chat_history)} questions)"):
+                for i, h in enumerate(st.session_state.chat_history):
+                    st.markdown(f"**Q{i+1}:** {h['question']}")
+                    st.code(h['sql'], language="sql")
+                    st.divider()
+            if st.button("🗑 Clear History"):
+                st.session_state.chat_history = []
+                st.rerun()
 
         # # Legacy text-parsing fallback (kept for reference)
         # results_text = result["results"]
