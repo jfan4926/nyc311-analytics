@@ -334,35 +334,9 @@ with tab1:
             key="map_type"
         )
 
-    borough_filter = f"AND borough = '{selected_borough}'" if selected_borough != "All" else ""
-    type_filter = f"AND complaint_type = '{selected_type}'" if selected_type != "All" else ""
+    borough_filter = f"AND UPPER(TRIM(borough)) = '{selected_borough}'" if selected_borough != "All" else ""
+    type_filter = f"AND UPPER(TRIM(complaint_type)) = '{selected_type}'" if selected_type != "All" else ""
 
-    # map_df = con.execute(f"""
-    #     SELECT latitude, longitude, complaint_type, borough, resolution_hours
-    #     FROM stg_complaints
-    #     WHERE latitude IS NOT NULL
-    #       AND longitude IS NOT NULL
-    #       AND latitude BETWEEN 40.4 AND 41.0
-    #       AND longitude BETWEEN -74.3 AND -73.7
-    #       {borough_filter}
-    #       {type_filter}
-    #     LIMIT 50000
-    # """).df()
-
-    # map_df = con.execute("""
-    #     SELECT
-    #         latitude,
-    #         longitude,
-    #         complaint_type,
-    #         borough,
-    #         resolution_hours
-    #     FROM stg_complaints
-    #     WHERE latitude IS NOT NULL
-    #       AND longitude IS NOT NULL
-    #       AND latitude BETWEEN 40.4 AND 41.0
-    #       AND longitude BETWEEN -74.3 AND -73.7
-    #     LIMIT 50000
-    # """).df()
     BOROUGH_CENTERS = {
         "BRONX":         {"lat": 40.8448, "lon": -73.8648},
         "BROOKLYN":      {"lat": 40.6782, "lon": -73.9442},
