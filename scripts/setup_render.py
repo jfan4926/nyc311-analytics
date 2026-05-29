@@ -45,7 +45,7 @@ def download_data():
 
 def run_dbt():
     os.makedirs(DB_DIR, exist_ok=True)
-    workspace = os.path.abspath(".")
+    workspace = os.path.abspath(".").replace("\\", "/")
 
     # Write profiles.yml with absolute paths
     profiles = f"""nyc311:
