@@ -225,4 +225,5 @@ zipp==4.1.0
 zstandard==0.25.0
 slowapi==0.1.9
 langchain-groq
-shapprophet
+shap
+prophet
