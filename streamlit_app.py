@@ -375,12 +375,17 @@ with tab1:
     map_center = BOROUGH_CENTERS[selected_borough]
     map_zoom   = 10 if selected_borough == "All" else 12
     map_df = con.execute(f"""
-        SELECT latitude, longitude, complaint_type, borough, resolution_hours
-        FROM stg_complaints
+        SELECT 
+            TRY_CAST(latitude AS DOUBLE) AS latitude,
+            TRY_CAST(longitude AS DOUBLE) AS longitude,
+            UPPER(TRIM(complaint_type)) AS complaint_type,
+            CASE WHEN borough = 'Unspecified' THEN NULL 
+                 ELSE UPPER(TRIM(borough)) END AS borough
+        FROM read_parquet('data/raw/nyc311.parquet')
         WHERE latitude IS NOT NULL
           AND longitude IS NOT NULL
-          AND latitude BETWEEN 40.4 AND 41.0
-          AND longitude BETWEEN -74.3 AND -73.7
+          AND TRY_CAST(latitude AS DOUBLE) BETWEEN 40.4 AND 41.0
+          AND TRY_CAST(longitude AS DOUBLE) BETWEEN -74.3 AND -73.7
           {borough_filter}
           {type_filter}
         ORDER BY RANDOM()
