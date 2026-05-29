@@ -313,8 +313,92 @@ with tab1:
     fig4.update_traces(textposition='top center')
     fig4.update_layout(plot_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig4, use_container_width=True)
+
     
-    #heatmap
+    # ── Prophet Forecast ──────────────────────────────────
+    st.subheader("📈 4-Week Complaint Volume Forecast")
+    st.caption("Prophet time series model · 77 months training data (2020–2026) · yearly seasonality · 95% confidence interval")
+    
+    @st.cache_data
+    def run_forecast():
+        from prophet import Prophet
+        df_hist = pd.read_csv("data/forecasting/monthly_complaints.csv")
+        df_hist['ds'] = pd.to_datetime(df_hist['ds'])
+
+        m = Prophet(
+            yearly_seasonality=True,
+            weekly_seasonality=False,
+            daily_seasonality=False,
+            changepoint_prior_scale=0.05
+        )
+        m.fit(df_hist)
+
+        future   = m.make_future_dataframe(periods=4, freq='MS')
+        forecast = m.predict(future)
+        return df_hist, forecast
+
+    df_hist, forecast = run_forecast()
+
+    # 合并历史+预测
+    hist_plot = df_hist.rename(columns={"ds": "date", "y": "complaints"})
+    hist_plot["type"] = "Historical"
+
+    pred_plot = forecast[forecast['ds'] > df_hist['ds'].max()][['ds','yhat','yhat_lower','yhat_upper']].copy()
+    pred_plot.columns = ['date','complaints','lower','upper']
+    pred_plot["type"] = "Forecast"
+
+    fig_forecast = go.Figure()
+
+    # 历史线
+    fig_forecast.add_trace(go.Scatter(
+        x=hist_plot['date'], y=hist_plot['complaints'],
+        mode='lines+markers',
+        name='Historical',
+        line=dict(color='#1f77b4', width=2),
+        marker=dict(size=4)
+    ))
+
+    # 预测区间
+    fig_forecast.add_trace(go.Scatter(
+        x=pd.concat([pred_plot['date'], pred_plot['date'][::-1]]),
+        y=pd.concat([pred_plot['upper'], pred_plot['lower'][::-1]]),
+        fill='toself',
+        fillcolor='rgba(255,127,14,0.2)',
+        line=dict(color='rgba(255,255,255,0)'),
+        name='Confidence Interval',
+        showlegend=True
+    ))
+
+    # 预测线
+    fig_forecast.add_trace(go.Scatter(
+        x=pred_plot['date'], y=pred_plot['complaints'],
+        mode='lines+markers',
+        name='Forecast',
+        line=dict(color='#ff7f0e', width=2, dash='dash'),
+        marker=dict(size=8, symbol='diamond')
+    ))
+
+    fig_forecast.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)',
+        height=400,
+        legend=dict(orientation='h', y=1.1),
+        xaxis_title="Month",
+        yaxis_title="Complaints",
+        hovermode='x unified'
+    )
+    st.plotly_chart(fig_forecast, use_container_width=True)
+    # 预测数字展示
+    forecast_months = pred_plot.sort_values('date')
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    for i, (col, row) in enumerate(zip([fc1,fc2,fc3,fc4], forecast_months.itertuples())):
+        col.metric(
+            label=row.date.strftime("%b %Y"),
+            value=f"{int(row.complaints):,}",
+            delta=f"±{int((row.upper-row.lower)/2):,}"
+        )
+
+
+    #── Heatmap ──────────────────────────────────
     st.subheader("🗺 Complaint Density Heatmap")
     st.caption("Geographic distribution of complaints — darker = higher density")
 
