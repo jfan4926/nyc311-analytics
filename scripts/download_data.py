@@ -4,7 +4,7 @@ import urllib.parse
 params = urllib.parse.urlencode({
     "$limit": 500000,
     "$where": "created_date >= '2022-01-01'",
-    "$order": "created_date DESC"
+    "$order": "created_date DESC"    
 })
 
 url = f"https://data.cityofnewyork.us/resource/erm2-nwe9.csv?{params}"

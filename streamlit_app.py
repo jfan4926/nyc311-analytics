@@ -635,7 +635,7 @@ with tab2:
     if col_ex4.button("🔊 Which borough has most noise complaints?"):
         st.session_state.question = "Which borough has the most NOISE - RESIDENTIAL complaints by total volume?"
     if col_ex5.button("⏱ Slowest complaint types to resolve?"):
-        st.session_state.question = "What are the top 5 complaint types by average resolution time?"
+        st.session_state.question = "What is the top complaint type by average resolution time?"
     if col_ex6.button("🏆 Which agency handles most complaints?"):
         st.session_state.question = "Which agency has the most total complaints?"
 
