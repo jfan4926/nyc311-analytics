@@ -50,20 +50,31 @@ def is_safe_sql(sql: str) -> tuple[bool, str]:
 # ── RAG (keyword-based, no external dependencies) ────────
 def retrieve_context(question: str, n_results: int = 3) -> str:
     q = question.lower()
+
     docs = {
         "trends": """Table mart_complaint_trends (already aggregated, one row per week+borough+complaint_type).
-To get totals use SUM() with GROUP BY.
+To get totals use SUM() with GROUP BY. ALWAYS include GROUP BY when using aggregate functions.
 Columns: week, borough, complaint_type, total_complaints,
-closed_complaints, avg_resolution_hours, closure_rate_pct.""",
+closed_complaints, avg_resolution_hours, closure_rate_pct.
+Example - complaints by borough:
+SELECT borough, SUM(total_complaints) AS total FROM mart_complaint_trends
+WHERE borough IS NOT NULL GROUP BY borough ORDER BY total DESC""",
 
         "agency": """Table mart_agency_performance (one row per agency+complaint_type).
 Columns: agency, agency_name, complaint_type, total_complaints,
-avg_resolution_hours, p90_resolution_hours, pct_over_1_week.""",
+avg_resolution_hours, p90_resolution_hours, pct_over_1_week.
+Example - worst agency:
+SELECT agency_name, ROUND(AVG(avg_resolution_hours),1) AS avg_hours
+FROM mart_agency_performance GROUP BY agency_name ORDER BY avg_hours DESC LIMIT 5""",
 
         "features": """Table mart_ml_features (one row per complaint).
 Columns: unique_key, created_at, resolution_hours, agency, complaint_type,
 borough, channel_type, created_hour, created_dow, created_month,
-is_weekend, hist_avg_resolution_hours, is_overdue (1=overdue, 0=on time).""",
+is_weekend, hist_avg_resolution_hours, is_overdue (1=overdue, 0=on time).
+Example - overdue rate by type:
+SELECT complaint_type, ROUND(AVG(is_overdue)*100,1) AS overdue_pct
+FROM mart_ml_features WHERE is_overdue IS NOT NULL
+GROUP BY complaint_type HAVING COUNT(*)>=100 ORDER BY overdue_pct DESC LIMIT 10""",
 
         "example_volume": """Example - top complaint types by volume:
 SELECT complaint_type, SUM(total_complaints) AS total
@@ -85,20 +96,55 @@ SELECT complaint_type, ROUND(AVG(is_overdue)*100,1) AS overdue_pct
 FROM mart_ml_features WHERE is_overdue IS NOT NULL
 GROUP BY complaint_type HAVING COUNT(*)>=100
 ORDER BY overdue_pct DESC LIMIT 10""",
+
+        "example_noise": """Example - borough with most noise complaints:
+SELECT borough, SUM(total_complaints) AS total
+FROM mart_complaint_trends
+WHERE UPPER(complaint_type) LIKE '%NOISE%'
+GROUP BY borough ORDER BY total DESC LIMIT 1""",
+
+        "example_agency_count": """Example - agency with most complaints:
+SELECT agency_name, SUM(total_complaints) AS total
+FROM mart_agency_performance
+GROUP BY agency_name ORDER BY total DESC LIMIT 5""",
+
+        "example_week_trend": """Example - weekly complaint trend over time:
+SELECT week, SUM(total_complaints) AS total
+FROM mart_complaint_trends
+GROUP BY week ORDER BY week""",
+
+        "example_channel": """Example - complaints by submission channel:
+SELECT channel_type, COUNT(*) AS total
+FROM mart_ml_features
+GROUP BY channel_type ORDER BY total DESC""",
+
+        "example_resolution_type": """Example - slowest complaint types to resolve:
+SELECT complaint_type, ROUND(AVG(avg_resolution_hours),1) AS avg_hours
+FROM mart_agency_performance
+GROUP BY complaint_type ORDER BY avg_hours DESC LIMIT 5""",
     }
+
     keywords = {
-        "trends":          ["trend","week","volume","borough","closure","type","complaint"],
-        "agency":          ["agency","department","performance","resolution","slow","fast"],
-        "features":        ["overdue","delay","predict","ml","feature","channel","hour"],
-        "example_volume":  ["top","most","volume","count","popular"],
-        "example_borough": ["borough","closure","rate","brooklyn","manhattan","bronx","queens"],
-        "example_agency":  ["agency","worst","best","resolution","time"],
-        "example_overdue": ["overdue","delay","late","risk"],
+        "trends":               ["trend","week","volume","borough","closure","type","complaint","total"],
+        "agency":               ["agency","department","performance","resolution","slow","fast","worst","best"],
+        "features":             ["overdue","delay","predict","ml","feature","channel","hour","weekend"],
+        "example_volume":       ["top","most","volume","count","popular","frequent"],
+        "example_borough":      ["borough","closure","rate","brooklyn","manhattan","bronx","queens","staten"],
+        "example_agency":       ["agency","worst","best","resolution","time","slow"],
+        "example_overdue":      ["overdue","delay","late","risk","exceed","week"],
+        "example_noise":        ["noise","sound","loud","residential","commercial","noise complaint"],
+        "example_agency_count": ["agency","most","handle","complaints","count","total"],
+        "example_week_trend":   ["trend","over time","weekly","month","change","grow"],
+        "example_channel":      ["channel","online","phone","mobile","submit","how"],
+        "example_resolution_type": ["slow","longest","takes","resolution","hours","type"],
     }
+
     scores = {k: sum(1 for kw in v if kw in q) for k, v in keywords.items()}
-    scores["trends"] += 1
+    scores["trends"] += 1  # always include schema
+
     top_ids  = sorted(scores, key=scores.get, reverse=True)[:n_results]
-    return "\n\n---\n\n".join(docs[i] for i in top_ids)
+    selected = [docs[i] for i in top_ids]
+    return "\n\n---\n\n".join(selected)
 
 # ── Text-to-SQL ───────────────────────────────────────────
 def query_database(sql: str) -> tuple[str, pd.DataFrame | None]:
@@ -243,8 +289,29 @@ st.markdown("""
     dbt · XGBoost · SHAP · LLaMA 3.1 · LangChain · FastAPI
 </p>
 """, unsafe_allow_html=True)
-st.divider()
+st.markdown("""
+<div style='text-align:center; max-width:700px; margin:0 auto; color:#555; font-size:15px; line-height:1.7;'>
+This platform analyzes <strong>499K+ NYC 311 service requests</strong> from 2022–2026, 
+covering noise complaints, illegal parking, housing issues, and more across all five boroughs. 
+<br>Use the tabs below to explore trends, ask questions in plain English, or predict whether a 
+complaint will be resolved on time.
+</div>
+""", unsafe_allow_html=True)
 
+st.markdown("<br>", unsafe_allow_html=True)
+
+#st.divider()
+st.markdown("""
+<style>
+.stTabs [data-baseweb="tab-list"] {
+    gap: 16px;
+}
+.stTabs [data-baseweb="tab"] {
+    font-size: 25px;
+    padding: 8px 20px;
+}
+</style>
+""", unsafe_allow_html=True)
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Ask the Data", "🔮 Predict & Explain"])
 
 # ════════════════════════════════════════════════════════
@@ -264,6 +331,16 @@ with tab1:
     </style>
     """, unsafe_allow_html=True)
     con  = duckdb.connect(DB_PATH, read_only=True)
+
+    st.markdown("""
+    <div style='background:#f0f7ff; border-left:4px solid #1f77b4; 
+                border-radius:6px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#444;'>
+    <strong>📊 About this dashboard</strong> · 
+    NYC 311 service requests (499K+, Apr 2022–May 2026) · 
+    Tracks complaint volume, agency SLA performance, borough trends, and 4-month Prophet forecast · 
+    <a href='https://data.cityofnewyork.us/resource/erm2-nwe9' target='_blank' style='color:#1f77b4;'>Data source ↗</a>
+    </div>
+    """, unsafe_allow_html=True)
     kpis = con.execute("""
         SELECT SUM(total_complaints)               AS total_complaints,
                ROUND(AVG(avg_resolution_hours), 1) AS avg_resolution_hours,
@@ -532,7 +609,17 @@ with tab1:
 # ════════════════════════════════════════════════════════
 # TAB 2: ASK THE DATA
 # ════════════════════════════════════════════════════════
+
 with tab2:
+    st.markdown("""
+    <div style='background:#f0fff4; border-left:4px solid #27ae60; 
+                border-radius:6px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#444;'>
+    <strong>🤖 How it works</strong> · 
+    Type a question in plain English → LLaMA 3.1 generates SQL → DuckDB executes → results auto-visualized · 
+    Supports follow-up questions ("What about Brooklyn?") · 
+    Powered by Groq API + LangChain + RAG
+    </div>
+    """, unsafe_allow_html=True)
     st.subheader("💬 Ask questions in plain English")
     st.caption("LLaMA 3.1 generates SQL → DuckDB executes → Results visualized automatically")
 
@@ -540,9 +627,17 @@ with tab2:
     if col_ex1.button("🏙 Highest closure rate by borough?"):
         st.session_state.question = "Which borough has the highest closure rate?"
     if col_ex2.button("📋 Top 5 complaint types by volume?"):
-        st.session_state.question = "What are the top 5 complaint types by total volume?"
+        st.session_state.question = "What is the top complaint type by total volume?"
     if col_ex3.button("🏢 Worst agency resolution time?"):
         st.session_state.question = "Which agency has the worst average resolution time?"
+
+    col_ex4, col_ex5, col_ex6 = st.columns(3)
+    if col_ex4.button("🔊 Which borough has most noise complaints?"):
+        st.session_state.question = "Which borough has the most NOISE - RESIDENTIAL complaints by total volume?"
+    if col_ex5.button("⏱ Slowest complaint types to resolve?"):
+        st.session_state.question = "What are the top 5 complaint types by average resolution time?"
+    if col_ex6.button("🏆 Which agency handles most complaints?"):
+        st.session_state.question = "Which agency has the most total complaints?"
 
     #chat history
     if "chat_history" not in st.session_state:
@@ -660,29 +755,21 @@ with tab2:
                 st.session_state.chat_history = []
                 st.rerun()
 
-        # # Legacy text-parsing fallback (kept for reference)
-        # results_text = result["results"]
-        # try:
-        #     lines = [l for l in results_text.strip().split('\n') if l.strip()]
-        #     if len(lines) >= 2:
-        #         headers = lines[0].split()
-        #         rows = [l.split() for l in lines[1:]]
-        #         max_cols = len(headers)
-        #         rows = [r[:max_cols] for r in rows if len(r) >= max_cols]
-        #         df_result = pd.DataFrame(rows, columns=headers)
-        #         for col in df_result.columns:
-        #             try: df_result[col] = pd.to_numeric(df_result[col])
-        #             except: pass
-        #         st.dataframe(df_result)
-        #     else:
-        #         st.text(results_text)
-        # except:
-        #     st.text(results_text)
 
 # ════════════════════════════════════════════════════════
 # TAB 3: PREDICT & EXPLAIN
 # ════════════════════════════════════════════════════════
 with tab3:
+    st.markdown("""
+    <div style='background:#fff8f0; border-left:4px solid #e67e22; 
+                border-radius:6px; padding:12px 16px; margin-bottom:16px; font-size:13px; color:#444;'>
+    <strong>🔮 How it works</strong> · 
+    XGBoost classifier (AUC=0.96) trained on 330K complaints · 
+    Predicts whether a complaint will exceed 1-week resolution · 
+    SHAP values explain each feature's contribution · 
+    Similar historical cases provide real-world context
+    </div>
+    """, unsafe_allow_html=True)
     st.subheader("🔮 Will this complaint be resolved on time?")
     st.caption("XGBoost · AUC = 0.96 · Explained with SHAP")
 
@@ -718,6 +805,8 @@ with tab3:
     with col_out:
         if predict_btn:
             with st.spinner("Running model + SHAP analysis..."):
+
+                # ── Build features ──
                 con      = duckdb.connect(DB_PATH, read_only=True)
                 hist_row = con.execute("""
                     SELECT COALESCE(hist_avg_resolution_hours, 0)
@@ -744,20 +833,51 @@ with tab3:
                 pred  = int(proba >= 0.5)
                 pct   = int(proba * 100)
 
-                st.markdown("### 🎯 Prediction Result")
-                components.html(make_gauge(proba, pred), height=220)
+                # ── Row 1: Gauge + Similar Cases ──────────────────────
+                r1_left, r1_right = st.columns(2)
 
-                if pct < 30:
-                    st.success("🟢 LOW RISK — Complaint likely resolved on time")
-                elif pct < 60:
-                    st.warning("🟡 MEDIUM RISK — Some chance of delay")
-                else:
-                    st.error("🔴 HIGH RISK — Complaint very likely to be delayed")
+                with r1_left:
+                    st.markdown("### 🎯 Prediction Result")
+                    components.html(make_gauge(proba, pred), height=220)
+                    if pct < 30:
+                        st.success("🟢 LOW RISK — Likely resolved on time")
+                    elif pct < 60:
+                        st.warning("🟡 MEDIUM RISK — Some chance of delay")
+                    else:
+                        st.error("🔴 HIGH RISK — Very likely to be delayed")
+
+                with r1_right:
+                    st.markdown("### 🔎 Similar Historical Cases")
+                    st.caption("Complaints with same agency · type · borough")
+                    con = duckdb.connect(DB_PATH, read_only=True)
+                    similar_df = con.execute(f"""
+                        SELECT
+                            created_at::DATE                                    AS date,
+                            ROUND(resolution_hours, 1)                          AS res_hours,
+                            channel_type,
+                            CASE WHEN is_overdue = 1 THEN '⚠️ Overdue'
+                                 ELSE '✅ On Time' END                          AS status
+                        FROM mart_ml_features
+                        WHERE agency         = '{agency}'
+                          AND complaint_type = '{complaint_type}'
+                          AND borough        = '{borough}'
+                          AND resolution_hours IS NOT NULL
+                        ORDER BY ABS(created_hour - {created_hour})
+                        LIMIT 5
+                    """).df()
+                    con.close()
+                    if len(similar_df) > 0:
+                        avg_sim = similar_df['res_hours'].mean()
+                        st.metric("Avg Resolution (similar cases)", f"{avg_sim:.1f}h")
+                        st.dataframe(similar_df, use_container_width=True,
+                                     hide_index=True)
+                    else:
+                        st.info("No historical cases found with these parameters.")
 
                 st.divider()
 
-                st.markdown("### 🔍 Why did the model predict this?")
-                st.caption("SHAP values: each feature's contribution to the prediction")
+                # ── Row 2: SHAP + Feature Importance ──────────────────
+                r2_left, r2_right = st.columns(2)
 
                 explainer   = shap.TreeExplainer(model)
                 shap_values = explainer.shap_values(features)
@@ -777,42 +897,44 @@ with tab3:
                 shap_df['label'] = shap_df.apply(
                     lambda r: f"{r['feature']} = {r['feature_value']}", axis=1)
 
-                fig_shap = go.Figure(go.Bar(
-                    x=shap_df['shap_value'],
-                    y=shap_df['label'],
-                    orientation='h',
-                    marker_color=shap_df['color'],
-                    text=[f"{v:.4f}" for v in shap_df['shap_value']],
-                    textposition='outside'
-                ))
-                fig_shap.update_layout(
-                    title="🔴 Red = increases delay risk   🟢 Green = reduces delay risk",
-                    xaxis_title="SHAP Value (impact on prediction)",
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    height=400, margin=dict(l=20, r=20)
-                )
-                st.plotly_chart(fig_shap, use_container_width=True)
+                with r2_left:
+                    st.markdown("### 🔍 Why this prediction?")
+                    st.caption("SHAP values: each feature's contribution")
+                    fig_shap = go.Figure(go.Bar(
+                        x=shap_df['shap_value'],
+                        y=shap_df['label'],
+                        orientation='h',
+                        marker_color=shap_df['color'],
+                        text=[f"{v:.4f}" for v in shap_df['shap_value']],
+                        textposition='outside'
+                    ))
+                    fig_shap.update_layout(
+                        title="🔴 increases risk  🟢 reduces risk",
+                        xaxis_title="SHAP Value",
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        height=380, margin=dict(l=10, r=30, t=40, b=20)
+                    )
+                    st.plotly_chart(fig_shap, use_container_width=True)
 
-                st.markdown("### 📊 Overall Model Feature Importance")
-                st.caption("Based on all training data, not just this prediction")
-
-                imp_df = pd.DataFrame({
-                    'feature':    [FEATURE_LABELS[c] for c in FEATURE_COLS],
-                    'importance': model.feature_importances_
-                }).sort_values('importance', ascending=True)
-
-                fig_imp = px.bar(
-                    imp_df, x='importance', y='feature',
-                    orientation='h', color='importance',
-                    color_continuous_scale='Blues',
-                    text=[f"{v:.4f}" for v in imp_df['importance']]
-                )
-                fig_imp.update_layout(
-                    coloraxis_showscale=False,
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    height=350
-                )
-                st.plotly_chart(fig_imp, use_container_width=True)
+                with r2_right:
+                    st.markdown("### 📊 Overall Feature Importance")
+                    st.caption("Based on all training data")
+                    imp_df = pd.DataFrame({
+                        'feature':    [FEATURE_LABELS[c] for c in FEATURE_COLS],
+                        'importance': model.feature_importances_
+                    }).sort_values('importance', ascending=True)
+                    fig_imp = px.bar(
+                        imp_df, x='importance', y='feature',
+                        orientation='h', color='importance',
+                        color_continuous_scale='Blues',
+                        text=[f"{v:.4f}" for v in imp_df['importance']]
+                    )
+                    fig_imp.update_layout(
+                        coloraxis_showscale=False,
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        height=380, margin=dict(l=10, r=10, t=10, b=20)
+                    )
+                    st.plotly_chart(fig_imp, use_container_width=True)
 
         else:
             st.markdown("""
@@ -821,3 +943,47 @@ with tab3:
               <p>The model will explain its decision using SHAP values</p>
             </div>
             """, unsafe_allow_html=True)
+
+
+st.divider()
+st.markdown("""
+<div style='text-align:center; color:#aaa; font-size:12px; padding:16px 0 8px 0;'>
+    <p>
+        Data source: <a href='https://data.cityofnewyork.us/Social-Services/311-Service-Requests-from-2010-to-Present/erm2-nwe9' 
+        target='_blank' style='color:#aaa;'>NYC Open Data — 311 Service Requests</a> · 
+        Updated through May 2026
+    </p>
+    <p>
+        ⚠️ This platform is intended for analytical and educational purposes only. 
+        Predictions are probabilistic and should not be used for official decision-making.
+    </p>
+    <p>
+        <a href='https://github.com/jfan4926/nyc311-analytics' target='_blank' 
+        style='color:#aaa;'>📁 View on GitHub</a> · 
+        Built with Python · dbt · XGBoost · LLaMA 3.1 · Streamlit
+    </p>
+</div>
+""", unsafe_allow_html=True)
+        # ── Back to top ───────────────────────────────────────
+st.markdown("""
+<a href="#nyc-311-complaint-analytics" style="
+    position: fixed;
+    bottom: 32px;
+    right: 32px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: #1f77b4;
+    color: white;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    line-height: 1;
+">↑</a>
+""", unsafe_allow_html=True)
