@@ -1,0 +1,13 @@
+streamlit
+duckdb
+pandas
+plotly
+shap
+xgboost
+scikit-learn
+langchain-groq
+langchain-core
+python-dotenv
+sqlparse
+pyarrow
+numpy

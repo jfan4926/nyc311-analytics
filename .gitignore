@@ -6,7 +6,7 @@ __pycache__/
 
 # 数据文件
 data/raw/
-data/processed/
+#data/processed/
 *.parquet
 *.csv
 
@@ -31,4 +31,5 @@ mlflow.db
 Thumbs.db
 
 #RAG
+#api/llm/chroma_store/ml_pipeline/models/*.pkl
 api/llm/chroma_store/

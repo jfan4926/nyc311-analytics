@@ -3,26 +3,37 @@
 An end-to-end AI-augmented analytics platform built on NYC 311 service request data (390K+ records). Predicts complaint resolution delays, explains model decisions with SHAP, and enables natural language querying via an LLM-powered Text-to-SQL agent.
 
 ![CI](https://github.com/jfan4926/nyc311-analytics/actions/workflows/ci.yml/badge.svg)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?logo=streamlit)](https://nyc311-analytics-jfan.streamlit.app/)
+
+---
+
+## 🚀 Live Demo
+
+**[nyc311-analytics-jfan.streamlit.app](https://nyc311-analytics-jfan.streamlit.app/)**
+
+> ⚠️ First load may take 30–60 seconds (Streamlit Cloud cold start)
 
 ---
 
 ## 🏗 Architecture
 
+The platform is designed as a full-stack service with a FastAPI backend and Streamlit frontend. The current live deployment runs as a standalone Streamlit app due to memory constraints on free-tier cloud platforms — the FastAPI backend is fully implemented locally and remains a deployment target for future iterations.
+
 ```
 Raw Data (NYC Open Data API)
-        ↓
-  [Prefect Orchestration]
         ↓
   [DuckDB + dbt Core]          ← Staging + 3 Mart models
    ↙            ↘
 [XGBoost ML]   [LLM Text-to-SQL]
-  MLflow          RAG (ChromaDB)
+  MLflow          RAG (keyword-based)
   Evidently       LangChain + Groq
    ↘            ↙
-   [FastAPI Backend]
+[FastAPI Backend]  ← Fully implemented, pending cloud deployment
         ↓
- [Streamlit Dashboard]
+ [Streamlit Dashboard]         ← Live at streamlit.app
 ```
+
+---
 
 ## ✨ Features
 
@@ -36,7 +47,7 @@ Raw Data (NYC Open Data API)
 ### 🤖 Tab 2 — Ask the Data (LLM Agent)
 
 - Natural language → SQL via LLaMA 3.1 (Groq API)
-- **RAG-enhanced**: ChromaDB vector store with schema docs and example queries for accurate SQL generation
+- **RAG-enhanced**: keyword-based context retrieval injecting relevant schema docs and example queries for accurate SQL generation
 - Step-by-step agent process visualization (question → SQL → results)
 - Auto-visualization: bar charts generated from query results
 - Input validation and SQL injection prevention
@@ -53,21 +64,19 @@ Raw Data (NYC Open Data API)
 
 ## 🛠 Tech Stack
 
-| Layer               | Tools                                    |
-| ------------------- | ---------------------------------------- |
-| Data Warehouse      | DuckDB                                   |
-| Data Transformation | dbt Core (staging → marts)               |
-| Orchestration       | Prefect                                  |
-| ML Training         | XGBoost · Optuna (hyperparameter tuning) |
-| Experiment Tracking | MLflow                                   |
-| Model Monitoring    | Evidently AI (data drift detection)      |
-| LLM                 | LLaMA 3.1 via Groq API                   |
-| RAG                 | ChromaDB · sentence-transformers         |
-| LLM Framework       | LangChain                                |
-| Backend API         | FastAPI · slowapi (rate limiting)        |
-| Frontend            | Streamlit · Plotly                       |
-| Containerization    | Docker · docker-compose                  |
-| CI/CD               | GitHub Actions (dbt tests + ruff lint)   |
+| Layer               | Tools                                            |
+| ------------------- | ------------------------------------------------ |
+| Data Warehouse      | DuckDB                                           |
+| Data Transformation | dbt Core (staging → marts)                       |
+| ML Training         | XGBoost · Optuna (hyperparameter tuning)         |
+| Experiment Tracking | MLflow                                           |
+| Model Monitoring    | Evidently AI (data drift detection)              |
+| LLM                 | LLaMA 3.1 via Groq API                           |
+| RAG                 | Keyword-based context retrieval (LangChain)      |
+| Backend API         | FastAPI · slowapi (rate limiting) · API key auth |
+| Frontend            | Streamlit · Plotly                               |
+| Containerization    | Docker · docker-compose                          |
+| CI/CD               | GitHub Actions (dbt tests + ruff lint)           |
 
 ---
 
@@ -92,10 +101,10 @@ nyc311-analytics/
 │   ├── main.py                 # FastAPI endpoints
 │   └── llm/
 │       ├── text_to_sql.py      # LLM query generation
-│       └── rag.py              # ChromaDB vector store
+│       └── rag.py              # RAG context retrieval
 ├── scripts/
 │   └── download_data.py
-├── streamlit_app.py
+├── streamlit_app.py            # Standalone deployment (live)
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -145,25 +154,23 @@ cd ../..
 python ml_pipeline/train.py
 ```
 
-### 5. Build RAG knowledge base
+### 5. Start Streamlit (standalone)
 
 ```bash
-python api/llm/rag.py
-```
-
-### 6. Start services
-
-```bash
-# Terminal 1 — FastAPI
-python -m uvicorn api.main:app --reload
-
-# Terminal 2 — Streamlit
 python -m streamlit run streamlit_app.py
 ```
 
-Open `http://localhost:8501`
+### 6. Start full-stack (FastAPI + Streamlit)
 
-### Docker (alternative)
+```bash
+# Terminal 1 — FastAPI backend
+python -m uvicorn api.main:app --reload
+
+# Terminal 2 — Streamlit frontend
+python -m streamlit run streamlit_app.py
+```
+
+### Docker
 
 ```bash
 docker-compose up --build
@@ -230,13 +237,16 @@ GitHub Actions runs on every push to `main`:
 ## 💡 Design Decisions
 
 **Why DuckDB over Postgres/Snowflake?**
-DuckDB is columnar, requires no server, and handles 390K rows in milliseconds locally. The dbt project is designed to be cloud-portable — switching to BigQuery or Snowflake requires only a profile change.
+DuckDB is columnar, requires no server, and handles 390K rows in milliseconds locally. The dbt project is cloud-portable — switching to BigQuery or Snowflake requires only a profile change.
 
 **Why RAG for Text-to-SQL?**
-Without context, LLMs generate incorrect SQL for aggregated tables (e.g. forgetting `GROUP BY` on weekly mart data). RAG injects relevant schema descriptions and example queries, significantly improving accuracy.
+Without context, LLMs generate incorrect SQL for aggregated tables (e.g. forgetting `GROUP BY` on weekly mart data). RAG injects relevant schema descriptions and example queries, significantly improving SQL accuracy.
 
 **Why XGBoost over deep learning?**
 Tabular data with mixed feature types. XGBoost provides strong baseline performance, native feature importance, and SHAP compatibility for explainability — critical for stakeholder trust.
+
+**Deployment architecture note:**
+The FastAPI backend (with rate limiting, API key authentication, and structured endpoints) is fully implemented and tested locally. The live deployment uses a standalone Streamlit app due to memory limitations on free-tier cloud platforms (512MB). Migrating to a paid tier or containerized cloud environment (GCP Cloud Run, AWS ECS) would enable the full microservices architecture.
 
 ---
 
@@ -244,12 +254,12 @@ Tabular data with mixed feature types. XGBoost provides strong baseline performa
 
 Managed with GitHub Projects (Kanban) and GitHub Issues across 4 sprints:
 
-| Sprint   | Focus                  | Status  |
-| -------- | ---------------------- | ------- |
-| Sprint 1 | Data Engineering (dbt) | ✅ Done |
-| Sprint 2 | ML Pipeline            | ✅ Done |
-| Sprint 3 | LLM + API + UI         | ✅ Done |
-| Sprint 4 | RAG + CI/CD            | ✅ Done |
+| Sprint   | Focus                    | Status  |
+| -------- | ------------------------ | ------- |
+| Sprint 1 | Data Engineering (dbt)   | ✅ Done |
+| Sprint 2 | ML Pipeline              | ✅ Done |
+| Sprint 3 | LLM + API + UI           | ✅ Done |
+| Sprint 4 | RAG + CI/CD + Deployment | ✅ Done |
 
 ---
 
